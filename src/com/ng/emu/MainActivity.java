@@ -623,6 +623,7 @@ public class MainActivity extends Activity {
         });
     }
 
+
     private void startNet(android.bluetooth.BluetoothSocket s, int mode) {
         netSocket = s;
         netRunning = true;
@@ -650,16 +651,22 @@ public class MainActivity extends Activity {
         } catch (Exception e) { netLost(e); return; }
 
         final String mm = myMode, pr = myRom, pm = peerMode, rr = peerRom;
-        runOnUiThread(() -> {
-            if (!mm.equals(pm)) { toastMain("NeoGeo 模式不一致：本机 " + mm + " / 对端 " + pm + "，已断开"); netLost(new Exception("mode mismatch")); return; }
-            if (myCpu != peerCpu) { toastMain("CPU 频率不一致：本机 " + myCpu + "% / 对端 " + peerCpu + "%，已断开"); netLost(new Exception("cpu mismatch")); return; }
-            if (!pr.equals(rr)) { toastMain("ROM 不一致，已断开"); netLost(new Exception("rom mismatch")); return; }
-            // 严格起跑栅栏：先暂停模拟，再复位归零帧号，再同时恢复
-            Native.netPause(1);
-            Native.netRestart();
-            Native.netPause(0);
-            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，同步起跑");
-        });
+        // 暂停模拟，让两端都停止
+        Native.netPause(1);
+        // 校验配置
+        if (!mm.equals(pm)) { toastMain("NeoGeo 模式不一致，已断开"); netLost(new Exception("mode mismatch")); return; }
+        if (myCpu != peerCpu) { toastMain("CPU 频率不一致，已断开"); netLost(new Exception("cpu mismatch")); return; }
+        if (!pr.equals(rr)) { toastMain("ROM 不一致，已断开"); netLost(new Exception("rom mismatch")); return; }
+        // 两端都就绪：主机等客户端 ACK，客户端发 ACK
+        if (mode == 1) {
+            try { in.readUTF(); } catch (Exception e) { netLost(e); return; }  // 等客户端 "OK"
+        } else {
+            try { out.writeUTF("OK"); out.flush(); } catch (Exception e) { netLost(e); return; }  // 发 "OK"
+        }
+        // 两端同时复位 + 恢复
+        Native.netRestart();
+        Native.netPause(0);
+        runOnUiThread(() -> toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，同步起跑"));
 
         // 2) 严格同步：发送帧 + 帧号，接收帧 + 帧号
         final java.io.DataOutputStream fout = out; final java.io.DataInputStream fin = in;

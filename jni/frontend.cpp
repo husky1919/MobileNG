@@ -291,15 +291,20 @@ static void syncNet() {
     int delay = g_netDelay.load();
     uint32_t want = f > (uint32_t) delay ? f - (uint32_t) delay : 0;
     if (f > (uint32_t) delay) {
-        // 死等对端输入，绝不用旧输入顶替（那是不同步的根源）。
-        // 只有断线(g_netMode=0)或退出(g_running=false)才放弃。
-        while (g_netMode.load() && g_running &&
-               g_rxFrame[want % (unsigned) NET_RING].load() != want)
-            usleep(500);
+        // 严格等：最多 50ms，超了直接断开
+        for (int i = 0; i < 50 && g_netMode.load() && g_running; i++) {
+            if (g_rxFrame[want % (unsigned) NET_RING].load() == want) break;
+            usleep(1000);
+        }
+        // 超时断开
+        if (g_netMode.load() && g_running && g_rxFrame[want % (unsigned) NET_RING].load() != want) {
+            g_netMode.store(0);
+            LOGI("net disconnect: frame %u timeout", want);
+            return;
+        }
     }
     { unsigned wi = want % (unsigned) NET_RING;
-      uint32_t mask = (g_rxFrame[wi].load() == want) ? g_rxMask[wi] : g_lastRemote;
-      g_lastRemote = mask;
+      uint32_t mask = (g_rxFrame[wi].load() == want) ? g_rxMask[wi] : 0;
       g_btn[1 - g_padPort.load()].store(mask);
     }
 }
