@@ -377,7 +377,7 @@ public class MainActivity extends Activity {
 
     // ---------------- NeoGeo 模式 ----------------
     private void neoMode() {
-        String cur = prefs().getString("neomode", "DIPSWITCH");
+        String cur = prefs().getString("neomode", "UNIBIOS");
         int idx = 0;
         for (int i = 0; i < NEO_MODES.length; i++) if (NEO_MODES[i].equals(cur)) idx = i;
         new AlertDialog.Builder(this)
@@ -392,7 +392,7 @@ public class MainActivity extends Activity {
     }
 
     private void applyNeoMode() {
-        Native.setCoreVariable("fbneo-neogeo-mode", prefs().getString("neomode", "DIPSWITCH"));
+        Native.setCoreVariable("fbneo-neogeo-mode", prefs().getString("neomode", "UNIBIOS"));
     }
 
     // ---------------- CPU 频率 ----------------
@@ -456,7 +456,7 @@ public class MainActivity extends Activity {
                 ? (coreFile.length() / 1024 / 1024) + " MB" : "未导入").append('\n');
         String drv = Native.getDriver();
         sb.append("当前驱动：").append(drv.isEmpty() ? "(未载入游戏)" : drv).append('\n');
-        sb.append("NeoGeo 模式：").append(prefs().getString("neomode", "DIPSWITCH")).append('\n');
+        sb.append("NeoGeo 模式：").append(prefs().getString("neomode", "UNIBIOS")).append('\n');
         sb.append("CPU 频率：").append(prefs().getInt("cpuspeed", 100)).append("%\n");
         sb.append("分辨率缩放：").append(vScale == 0 ? "适应窗口" : vScale == 1 ? "整数倍" : "拉伸").append('\n');
         sb.append("\nsystem 目录：\n").append(systemDir.getAbsolutePath()).append('\n');
