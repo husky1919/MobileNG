@@ -250,6 +250,7 @@ static uint32_t g_lastRemote = 0;
 static std::atomic<int> g_netDelay{4};  // 默认 4 帧，可运行时改
 static void setNetDelay(int d) { if (d < 0) d = 0; if (d > 30) d = 30; g_netDelay.store(d); }
 static const int  NET_RING  = 30;   // 30 帧环形缓冲（Kawaks 同款）
+static std::atomic<int> g_netPause{0}; // 1=暂停模拟，仅同步输入
 static std::atomic<uint32_t> g_txRing[30];
 static std::atomic<uint32_t> g_txLatest{0};
 static uint32_t g_txSent = 0;
@@ -258,9 +259,31 @@ static std::atomic<int> g_restartDone{0};
 
 static void syncNet() {
     if (!g_netMode.load()) return;
+    // 如果暂停，只处理输入同步，不推进游戏帧号
+    if (g_netPause.load()) {
+        // 仍然从 rxFrame 读取对端输入，用于锁步，但不产生新帧号
+        uint32_t f = g_txFrame.load(); // 保持不变
+        uint32_t m = g_btn[g_padPort.load()].load();
+        { unsigned i = f % (unsigned) NET_RING; g_txRing[i].store(m); }
+        g_txMask.store(m);
+        g_txDirty.store(true);
+        uint32_t delay = g_netDelay.load();
+        uint32_t want = f > (uint32_t) delay ? f - (uint32_t) delay : 0;
+        if (f > (uint32_t) delay) {
+            for (int i = 0; i < 50 && g_netMode.load() && g_running; i++) {
+                if (g_rxFrame[want % (unsigned) NET_RING].load() == want) break;
+                usleep(1000);
+            }
+        }
+        { unsigned wi = want % (unsigned) NET_RING;
+          uint32_t mask = (g_rxFrame[wi].load() == want) ? g_rxMask[wi] : g_lastRemote;
+          g_lastRemote = mask;
+          g_btn[1 - g_padPort.load()].store(mask);
+        }
+        return;
+    }
     uint32_t f = g_txFrame.load() + 1;
-    g_txFrame.store(f);
-    uint32_t m = g_btn[g_padPort.load()].load();
+    g_txFrame.store(f);    uint32_t m = g_btn[g_padPort.load()].load();
     g_txMask.store(m);
     { unsigned i = f % (unsigned) NET_RING; g_txRing[i].store(m); }
     g_txLatest.store(f);
@@ -692,6 +715,12 @@ Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
     g_rxLatest.store(0);
     g_lastRemote = 0;
     LOGI("net restart");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_netPause(JNIEnv *, jclass, jint on) {
+    g_netPause.store(on ? 1 : 0);
+    LOGI("net pause=%d", on ? 1 : 0);
 }
 
 extern "C" JNIEXPORT jlong JNICALL

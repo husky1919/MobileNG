@@ -646,8 +646,11 @@ public class MainActivity extends Activity {
             if (!mm.equals(pm)) { toastMain("NeoGeo 模式不一致：本机 " + mm + " / 对端 " + pm + "，已断开"); netLost(new Exception("mode mismatch")); return; }
             if (myCpu != peerCpu) { toastMain("CPU 频率不一致：本机 " + myCpu + "% / 对端 " + peerCpu + "%，已断开"); netLost(new Exception("cpu mismatch")); return; }
             if (!pr.equals(rr)) { toastMain("ROM 不一致，已断开"); netLost(new Exception("rom mismatch")); return; }
+            // 严格起跑栅栏：先暂停模拟，再复位归零帧号，再同时恢复
+            Native.netPause(1);
             if (loaded) Native.netRestart();
-            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，游戏已复位");
+            Native.netPause(0);
+            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，同步起跑");
         });
 
         // 2) 严格同步：发送帧 + 帧号，接收帧 + 帧号
@@ -1107,7 +1110,9 @@ public class MainActivity extends Activity {
 
     // ---------------- 运行 ----------------
     private void startGame(File f) {
-        if (netRunning) stopNet();
+        if (!netRunning) {
+            stopNet();
+        }
         stopAudio();
         if (loaded) {
             Native.stop();
