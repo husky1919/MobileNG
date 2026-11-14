@@ -246,6 +246,7 @@ public class MainActivity extends Activity {
                 toastMain("已恢复默认布局");
                 break;
             case "查看日志": showLog(); break;
+            case "系统信息 / BIOS": sysInfo(); break;
             case "内存编辑 [DEBUG]": memTool(); break;
             case "重置游戏": if (loaded) Native.reset(); break;
             default: finish();
@@ -363,6 +364,7 @@ public class MainActivity extends Activity {
         items.add("编辑布局");
         items.add("恢复默认布局");
         items.add("查看日志");
+        items.add("系统信息 / BIOS");
         boolean dbg = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (dbg) items.add("内存编辑 [DEBUG]");
         items.add("重置游戏");
@@ -445,6 +447,57 @@ public class MainActivity extends Activity {
 
     private void applyCpuSpeed() {
         Native.setCoreVariable("fbneo-cpu-speed-adjust", prefs().getInt("cpuspeed", 100) + "%");
+    }
+
+    // ---------------- 系统信息 / BIOS ----------------
+    private void sysInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("核心：").append(coreFile != null && coreFile.exists()
+                ? (coreFile.length() / 1024 / 1024) + " MB" : "未导入").append('\n');
+        String drv = Native.getDriver();
+        sb.append("当前驱动：").append(drv.isEmpty() ? "(未载入游戏)" : drv).append('\n');
+        sb.append("NeoGeo 模式：").append(prefs().getString("neomode", "DIPSWITCH")).append('\n');
+        sb.append("CPU 频率：").append(prefs().getInt("cpuspeed", 100)).append("%\n");
+        sb.append("分辨率缩放：").append(vScale == 0 ? "适应窗口" : vScale == 1 ? "整数倍" : "拉伸").append('\n');
+        sb.append("\nsystem 目录：\n").append(systemDir.getAbsolutePath()).append('\n');
+        File[] fs = systemDir.listFiles();
+        if (fs == null || fs.length == 0) sb.append("  (空)\n");
+        else {
+            java.util.Arrays.sort(fs);
+            for (File f : fs) sb.append("  ").append(f.getName())
+                    .append("   ").append(f.length() / 1024).append(" KB\n");
+        }
+
+        File neo = new File(systemDir, "neogeo.zip");
+        if (!neo.exists()) {
+            sb.append("\nneogeo.zip：未导入\n");
+        } else {
+            sb.append("\nneogeo.zip 里的 BIOS 文件：\n");
+            try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(neo)) {
+                int n = 0;
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries();
+                while (en.hasMoreElements()) {
+                    String nm = en.nextElement().getName().toLowerCase(Locale.ROOT);
+                    if (nm.startsWith("sp") || nm.startsWith("aes")
+                            || nm.startsWith("uni-bios") || nm.startsWith("uni_bios") || nm.contains("bios")) {
+                        sb.append("  ").append(nm).append('\n');
+                        n++;
+                    }
+                }
+                if (n == 0) sb.append("  (没有识别到 BIOS 文件)\n");
+            } catch (Exception e) {
+                sb.append("  读取失败: ").append(e).append('\n');
+            }
+        }
+
+        TextView tv = new TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(12);
+        tv.setPadding(40, 30, 40, 30);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new AlertDialog.Builder(this).setTitle("系统信息 / BIOS")
+                .setView(sv).setPositiveButton("关闭", null).show();
     }
 
     // ---------------- 联机（蓝牙 RFCOMM） ----------------
