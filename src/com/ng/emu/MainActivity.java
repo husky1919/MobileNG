@@ -176,6 +176,7 @@ public class MainActivity extends Activity {
         if (coreInited) { Native.deinit(); coreInited = false; }
         int r = Native.init(coreFile.getAbsolutePath(), systemDir.getAbsolutePath(), saveDir.getAbsolutePath());
         coreInited = (r == 0);
+        if (coreInited) applyCpuSpeed();
         Logger.log("Native.init -> " + r);
         return coreInited;
     }
@@ -192,6 +193,7 @@ public class MainActivity extends Activity {
 
     // ---------------- 菜单 ----------------
     private void handleMenu(String it) {
+        if (it.startsWith("CPU 频率")) { cpuSpeed(); return; }
         switch (it) {
             case "游戏列表": listGames(); break;
             case "选择任意 ROM": pick(REQ_ROM); break;
@@ -321,6 +323,7 @@ public class MainActivity extends Activity {
         items.add("读档");
         items.add("加载金手指 (.txt)");
         items.add("NeoGeo 模式");
+        items.add("CPU 频率（" + prefs().getInt("cpuspeed", 100) + "%）");
         items.add("画面设置");
         items.add(prefs().getBoolean("hud", false) ? "帧数显示：开" : "帧数显示：关");
         items.add("键位设置");
@@ -355,6 +358,60 @@ public class MainActivity extends Activity {
 
     private void applyNeoMode() {
         Native.setCoreVariable("fbneo-neogeo-mode", prefs().getString("neomode", "DIPSWITCH"));
+    }
+
+    // ---------------- CPU 频率 ----------------
+    private void cpuSpeed() {
+        final int cur = prefs().getInt("cpuspeed", 100);
+        final int[] speeds = {25, 50, 75, 90, 100, 110, 120, 150, 200, 300, 400};
+        java.util.List<String> items = new ArrayList<>();
+        int idx = -1;
+        for (int i = 0; i < speeds.length; i++) {
+            if (speeds[i] == cur) idx = i;
+            items.add(speeds[i] + "%   68k ≈ "
+                    + String.format(Locale.US, "%.1f", speeds[i] * 12.0 / 100) + " MHz");
+        }
+        items.add("自定义…");
+        new AlertDialog.Builder(this)
+                .setTitle("CPU 频率（当前 " + cur + "%）")
+                .setSingleChoiceItems(items.toArray(new String[0]), idx, (d, w) -> {
+                    d.dismiss();
+                    if (w == speeds.length) customCpu();
+                    else setCpu(speeds[w]);
+                })
+                .show();
+    }
+
+    private void customCpu() {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        et.setText(String.valueOf(prefs().getInt("cpuspeed", 100)));
+        new AlertDialog.Builder(this)
+                .setTitle("CPU 频率 25–400 %")
+                .setView(et)
+                .setPositiveButton("确定", (d, w) -> {
+                    try {
+                        int p = Integer.parseInt(et.getText().toString().trim());
+                        if (p < 25) p = 25;
+                        if (p > 400) p = 400;
+                        setCpu(p);
+                    } catch (Exception e) {
+                        toastMain("输入无效");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void setCpu(int p) {
+        prefs().edit().putInt("cpuspeed", p).apply();
+        applyCpuSpeed();
+        toastMain("CPU 频率 " + p + "%");
+        if (loaded && romFile != null) startGame(romFile);
+    }
+
+    private void applyCpuSpeed() {
+        Native.setCoreVariable("fbneo-cpu-speed-adjust", prefs().getInt("cpuspeed", 100) + "%");
     }
 
     // ---------------- 画面设置 ----------------
