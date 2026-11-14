@@ -195,12 +195,22 @@ public class MainActivity extends Activity {
         }
         if (!initCore()) { toastMain("核心加载失败"); return; }
 
-        String last = prefs().getString("rom", null);
-        if (last != null && new File(last).exists()) {
-            startGame(new File(last));
-            return;
-        }
-        runOnUiThread(this::listGames);
+        // 启动时弹窗选 ROM（有记录则显示上次游戏，无则选）
+        final String last = prefs().getString("rom", null);
+        final File lastFile = last != null ? new File(last) : null;
+        runOnUiThread(() -> {
+            java.util.List<String> items = new java.util.ArrayList<>();
+            if (lastFile != null && lastFile.exists()) items.add("继续上次：" + lastFile.getName());
+            items.add("浏览游戏目录…");
+            items.add("选择任意 ROM 文件…");
+            new AlertDialog.Builder(this).setTitle("选择游戏")
+                    .setItems(items.toArray(new String[0]), (d, w) -> {
+                        if (w == 0) { startGame(lastFile); return; }
+                        if (w == 1) listGames();
+                        else pick(REQ_ROM);
+                    })
+                    .show();
+        });
     }
 
     private boolean initCore() {
