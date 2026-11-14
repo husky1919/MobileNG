@@ -580,7 +580,6 @@ public class MainActivity extends Activity {
         withBtPermission(() -> {
             final android.bluetooth.BluetoothAdapter a = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
             if (a == null || !a.isEnabled()) { toastMain("请先打开蓝牙"); return; }
-            if (!loaded) { toastMain("先载入游戏再开房"); return; }
             stopNet();
             new Thread(() -> {
                 try {
@@ -601,7 +600,6 @@ public class MainActivity extends Activity {
         withBtPermission(() -> {
             final android.bluetooth.BluetoothAdapter a = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
             if (a == null || !a.isEnabled()) { toastMain("请先打开蓝牙"); return; }
-            if (!loaded) { toastMain("先载入同一个游戏再加入"); return; }
             java.util.Set<android.bluetooth.BluetoothDevice> set = a.getBondedDevices();
             if (set == null || set.isEmpty()) { toastMain("没有已配对设备，请先在系统蓝牙设置里配对"); return; }
             final java.util.List<android.bluetooth.BluetoothDevice> list = new ArrayList<>(set);
@@ -658,7 +656,7 @@ public class MainActivity extends Activity {
             if (!pr.equals(rr)) { toastMain("ROM 不一致，已断开"); netLost(new Exception("rom mismatch")); return; }
             // 严格起跑栅栏：先暂停模拟，再复位归零帧号，再同时恢复
             Native.netPause(1);
-            if (loaded) Native.netRestart();
+            Native.netRestart();
             Native.netPause(0);
             toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，同步起跑");
         });
