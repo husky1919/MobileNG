@@ -1,0 +1,21 @@
+# 构建产物
+build/
+*.apk
+*.aab
+
+# 二进制：核心 / 库 / 压缩包，不入库
+*.so
+*.zip
+core/
+
+# 签名与本地配置
+*.jks
+*.keystore
+*.properties
+local.properties
+
+# 编辑器
+.idea/
+.vscode/
+*.iml
+.DS_Store
