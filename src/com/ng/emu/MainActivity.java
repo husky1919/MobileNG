@@ -860,7 +860,10 @@ public class MainActivity extends Activity {
         int sr = Native.loadRom(f.getAbsolutePath());
         Logger.log("loadRom -> " + sr);
         if (sr <= 0) {
-            toastMain("载入失败 code=" + sr + "\n检查 neogeo.zip 是否在 " + systemDir.getAbsolutePath());
+            toastMain("载入失败 code=" + sr + "\n检查 ROM 是否匹配本核心、neogeo.zip 是否已导入");
+            romFile = null;
+            prefs().edit().remove("rom").apply();
+            runOnUiThread(this::listGames);
             return;
         }
         String cheat = prefs().getString("cheat", null);
