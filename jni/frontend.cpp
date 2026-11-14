@@ -248,6 +248,11 @@ static uint32_t g_rxMask[128];
 static std::atomic<uint32_t> g_rxLatest{0};
 static uint32_t g_lastRemote = 0;
 static const int NET_DELAY = 4;
+static std::atomic<uint32_t> g_txRing[128];
+static std::atomic<uint32_t> g_txLatest{0};
+static uint32_t g_txSent = 0;
+static std::atomic<int> g_restartReq{0};
+static std::atomic<int> g_restartDone{0};
 
 static void syncNet() {
     if (!g_netMode.load()) return;
@@ -255,15 +260,12 @@ static void syncNet() {
     g_txFrame.store(f);
     uint32_t m = g_btn[g_padPort.load()].load();
     g_txMask.store(m);
+    g_txRing[f & 127].store(m);
+    g_txLatest.store(f);
     g_txDirty.store(true);
-    uint32_t want = f > (uint32_t) NET_DELAY ? f - NET_DELAY : 0;
-    // 严格等这一帧的对端输入：缺了就必须等，绝不能用旧输入顶上，
-    // 否则两端使用的输入序列不同，模拟状态必然分叉。
+    uint32_t want = f > (uint32_t) NET_DELAY ? f - (uint32_t) NET_DELAY : 0;
     if (f > (uint32_t) NET_DELAY) {
-        for (int i = 0; i < 500 && g_running; i++) {
-            if (g_rxFrame[want & 127].load() == want) break;
-            usleep(1000);
-        }
+        while (g_netMode.load() && g_running && g_rxFrame[want & 127].load() != want) usleep(500);
     }
     uint32_t mask = (g_rxFrame[want & 127].load() == want) ? g_rxMask[want & 127] : g_lastRemote;
     g_lastRemote = mask;
@@ -330,6 +332,16 @@ static void runLoop() {
     int tick = 0, stat = 0, win = 0;
     double t0 = nowSec(), tWin = nowSec();
     while (g_running) {
+        if (g_restartReq.exchange(0)) {
+            p_reset();
+            g_btn[0].store(0); g_btn[1].store(0);
+            g_txFrame.store(0); g_txMask.store(0); g_txDirty.store(false);
+            g_txLatest.store(0); g_txSent = 0;
+            for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
+            g_rxLatest.store(0); g_lastRemote = 0;
+            LOGI("reset done in core thread");
+            g_restartDone.fetch_add(1);
+        }
         if (g_ncheats && (tick++ % 60) == 0) applyCheats();
         syncNet();
         p_run();
@@ -622,7 +634,9 @@ extern "C" JNIEXPORT void JNICALL Java_com_ng_emu_Native_stop(JNIEnv *, jclass) 
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_ng_emu_Native_reset(JNIEnv *, jclass) {
-    if (g_loaded) p_reset();
+    if (!g_loaded) return;
+    if (g_running) g_restartReq.store(1);
+    else p_reset();
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -639,7 +653,8 @@ Java_com_ng_emu_Native_netEnable(JNIEnv *, jclass, jint mode, jint localPort) {
     g_txFrame.store(0);
     g_rxLatest.store(0);
     g_lastRemote = 0;
-    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0); g_rxMask[i] = 0; }
+    g_txLatest.store(0); g_txSent = 0;
+    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0); g_rxMask[i] = 0; g_txRing[i].store(0); }
     g_padPort.store(localPort ? 1 : 0);
     g_netMode.store(mode);
     if (!mode) { g_btn[0].store(0); g_btn[1].store(0); }
@@ -648,14 +663,23 @@ Java_com_ng_emu_Native_netEnable(JNIEnv *, jclass, jint mode, jint localPort) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
-    // 复位游戏并把联机帧计数归零，保证两端“复位后第 N 帧”一一对应
-    if (g_loaded) p_reset();
-    g_btn[0].store(0);
-    g_btn[1].store(0);
-    g_txFrame.store(0);
-    g_txMask.store(0);
-    g_txDirty.store(false);
-    for (int i = 0; i < 128; i++) g_rxFrame[i].store(0xFFFFFFFFu);
+    if (g_loaded) {
+        int want = g_restartDone.load() + 1;
+        if (g_running) {
+            g_restartReq.store(1);
+            for (int i = 0; i < 3000 && g_running; i++) {
+                if (g_restartDone.load() >= want) break;
+                usleep(1000);
+            }
+        } else {
+            p_reset();
+            g_restartDone.fetch_add(1);
+        }
+    }
+    g_btn[0].store(0); g_btn[1].store(0);
+    g_txFrame.store(0); g_txMask.store(0); g_txDirty.store(false);
+    g_txLatest.store(0); g_txSent = 0;
+    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
     g_rxLatest.store(0);
     g_lastRemote = 0;
     LOGI("net restart");
@@ -664,9 +688,12 @@ Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_ng_emu_Native_netPoll(JNIEnv *, jclass) {
     if (!g_netMode.load()) return -1;
-    if (!g_txDirty.exchange(false)) return -1;
-    uint64_t v = ((uint64_t) g_txFrame.load() << 32) | g_txMask.load();
-    return (jlong) v;
+    uint32_t latest = g_txLatest.load();
+    if (g_txSent >= latest) return -1;
+    uint32_t f = g_txSent + 1;
+    uint32_t m = g_txRing[f & 127].load();
+    g_txSent = f;
+    return (jlong) (((uint64_t) f << 32) | m);
 }
 
 extern "C" JNIEXPORT void JNICALL
