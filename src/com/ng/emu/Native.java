@@ -19,6 +19,10 @@ public final class Native {
     public static native void setCoreVariable(String key, String value);
     public static native String getCoreVariable(String key);
     public static native String getDriver();
+    public static native void netEnable(int mode, int localPort);
+    public static native long netPoll();
+    public static native void netDeliver(int frame, int mask);
+    public static native int netState();
     public static native float getFps();
     public static native float getTargetFps();
     public static native long getFrames();

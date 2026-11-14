@@ -236,6 +236,42 @@ static void audioSampleCb(int16_t l, int16_t r) { int16_t b[2] = {l, r}; audioBa
 
 // ---------------- 输入 ----------------
 static std::atomic<uint32_t> g_btn[4];
+
+// ---------------- 联机（蓝牙，输入锁步） ----------------
+static std::atomic<int> g_netMode{0};          // 0=关 1=主机 2=客户端
+static std::atomic<int> g_padPort{0};          // 本机控制的玩家口
+static std::atomic<uint32_t> g_txFrame{0};
+static std::atomic<uint32_t> g_txMask{0};
+static std::atomic<bool> g_txDirty{false};
+static std::atomic<uint32_t> g_rxFrame[128];
+static uint32_t g_rxMask[128];
+static std::atomic<uint32_t> g_rxLatest{0};
+static uint32_t g_lastRemote = 0;
+static const int NET_DELAY = 3;
+
+static void syncNet() {
+    if (!g_netMode.load()) return;
+    uint32_t f = g_txFrame.load() + 1;
+    g_txFrame.store(f);
+    uint32_t m = g_btn[g_padPort.load()].load();
+    g_txMask.store(m);
+    g_txDirty.store(true);
+    uint32_t want = f > (uint32_t) NET_DELAY ? f - NET_DELAY : 0;
+    uint32_t mask;
+    if (g_rxFrame[want & 127].load() == want) mask = g_rxMask[want & 127];
+    else mask = g_lastRemote;
+    g_lastRemote = mask;
+    g_btn[1 - g_padPort.load()].store(mask);
+
+    // 跑太前就等一等，避免漂移累积
+    uint32_t rl = g_rxLatest.load();
+    if (f > rl + 15) {
+        for (int i = 0; i < 60 && g_running; i++) {
+            if (g_rxLatest.load() > f - 15) break;
+            usleep(2000);
+        }
+    }
+}
 static void inputPollCb(void) {}
 static int16_t inputStateCb(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port >= 4 || index != 0 || device != RETRO_DEVICE_JOYPAD) return 0;
@@ -298,6 +334,7 @@ static void runLoop() {
     double t0 = nowSec(), tWin = nowSec();
     while (g_running) {
         if (g_ncheats && (tick++ % 60) == 0) applyCheats();
+        syncNet();
         p_run();
         g_frames.fetch_add(1, std::memory_order_relaxed);
         if (++win >= 20) {
@@ -594,9 +631,43 @@ extern "C" JNIEXPORT void JNICALL Java_com_ng_emu_Native_reset(JNIEnv *, jclass)
 extern "C" JNIEXPORT void JNICALL
 Java_com_ng_emu_Native_setButton(JNIEnv *, jclass, jint port, jint id, jboolean pressed) {
     if (port < 0 || port > 3 || id < 0 || id > 15) return;
+    if (g_netMode.load() && port == 0) port = g_padPort.load();
     uint32_t m = g_btn[port].load(std::memory_order_relaxed);
     if (pressed) m |= (1u << id); else m &= ~(1u << id);
     g_btn[port].store(m, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_netEnable(JNIEnv *, jclass, jint mode, jint localPort) {
+    g_txFrame.store(0);
+    g_rxLatest.store(0);
+    g_lastRemote = 0;
+    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0); g_rxMask[i] = 0; }
+    g_padPort.store(localPort ? 1 : 0);
+    g_netMode.store(mode);
+    if (!mode) { g_btn[0].store(0); g_btn[1].store(0); }
+    LOGI("net mode=%d pad=%d", mode, localPort ? 1 : 0);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_ng_emu_Native_netPoll(JNIEnv *, jclass) {
+    if (!g_netMode.load()) return -1;
+    if (!g_txDirty.exchange(false)) return -1;
+    uint64_t v = ((uint64_t) g_txFrame.load() << 32) | g_txMask.load();
+    return (jlong) v;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_netDeliver(JNIEnv *, jclass, jint frame, jint mask) {
+    uint32_t f = (uint32_t) frame;
+    g_rxFrame[f & 127].store(f);
+    g_rxMask[f & 127] = (uint32_t) mask;
+    if (f > g_rxLatest.load()) g_rxLatest.store(f);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ng_emu_Native_netState(JNIEnv *, jclass) {
+    return g_netMode.load();
 }
 
 extern "C" JNIEXPORT jint JNICALL

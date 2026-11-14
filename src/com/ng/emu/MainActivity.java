@@ -227,6 +227,7 @@ public class MainActivity extends Activity {
         if (it.startsWith("CPU 频率")) { cpuSpeed(); return; }
         switch (it) {
             case "游戏列表": listGames(); break;
+            case "联机（蓝牙）": netMenu(); break;
             case "选择任意 ROM": pick(REQ_ROM); break;
             case "导入 BIOS/资源 (.zip)": importBios(); break;
             case "导入核心 (.so)": importCore(); break;
@@ -347,6 +348,7 @@ public class MainActivity extends Activity {
         if (editLayout) { exitEdit(); return; }
         final List<String> items = new ArrayList<>();
         items.add("游戏列表");
+        items.add("联机（蓝牙）");
         items.add("选择任意 ROM");
         items.add("导入 BIOS/资源 (.zip)");
         items.add("导入核心 (.so)");
@@ -443,6 +445,147 @@ public class MainActivity extends Activity {
 
     private void applyCpuSpeed() {
         Native.setCoreVariable("fbneo-cpu-speed-adjust", prefs().getInt("cpuspeed", 100) + "%");
+    }
+
+    // ---------------- 联机（蓝牙 RFCOMM） ----------------
+    private static final java.util.UUID NET_UUID =
+            java.util.UUID.fromString("6f9a1b1e-3f6c-4a1e-9a53-1c9b2b6a7e21");
+    private volatile boolean netRunning;
+    private android.bluetooth.BluetoothSocket netSocket;
+    private android.bluetooth.BluetoothServerSocket netServer;
+    private Runnable pendingBt;
+
+    private void netMenu() {
+        String st = !netRunning ? "未连接" : (Native.netState() == 1 ? "主机（1P）" : "客户端（2P）");
+        new AlertDialog.Builder(this)
+                .setTitle("联机（蓝牙）当前：" + st)
+                .setItems(new String[]{"创建房间（我当 1P）", "加入房间（我当 2P）", "断开联机"}, (d, w) -> {
+                    if (w == 0) createRoom();
+                    else if (w == 1) joinRoom();
+                    else stopNet();
+                }).show();
+    }
+
+    private void withBtPermission(Runnable r) {
+        if (android.os.Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission("android.permission.BLUETOOTH_CONNECT")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingBt = r;
+            requestPermissions(new String[]{"android.permission.BLUETOOTH_CONNECT",
+                    "android.permission.BLUETOOTH_SCAN"}, 9001);
+            return;
+        }
+        r.run();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] p, int[] g) {
+        super.onRequestPermissionsResult(req, p, g);
+        if (req == 9001) {
+            Runnable r = pendingBt;
+            pendingBt = null;
+            if (g.length > 0 && g[0] == android.content.pm.PackageManager.PERMISSION_GRANTED && r != null) r.run();
+            else toastMain("需要蓝牙权限");
+        }
+    }
+
+    private void createRoom() {
+        withBtPermission(() -> {
+            final android.bluetooth.BluetoothAdapter a = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            if (a == null || !a.isEnabled()) { toastMain("请先打开蓝牙"); return; }
+            if (!loaded) { toastMain("先载入游戏再开房"); return; }
+            stopNet();
+            new Thread(() -> {
+                try {
+                    netServer = a.listenUsingRfcommWithServiceRecord("MobileNG", NET_UUID);
+                    toastMain("等待对方加入…");
+                    android.bluetooth.BluetoothSocket s = netServer.accept();
+                    netServer.close();
+                    netServer = null;
+                    startNet(s, 1);
+                } catch (Exception e) {
+                    toastMain("开房失败: " + e.getMessage());
+                }
+            }).start();
+        });
+    }
+
+    private void joinRoom() {
+        withBtPermission(() -> {
+            final android.bluetooth.BluetoothAdapter a = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            if (a == null || !a.isEnabled()) { toastMain("请先打开蓝牙"); return; }
+            if (!loaded) { toastMain("先载入同一个游戏再加入"); return; }
+            java.util.Set<android.bluetooth.BluetoothDevice> set = a.getBondedDevices();
+            if (set == null || set.isEmpty()) { toastMain("没有已配对设备，请先在系统蓝牙设置里配对"); return; }
+            final java.util.List<android.bluetooth.BluetoothDevice> list = new ArrayList<>(set);
+            String[] names = new String[list.size()];
+            for (int i = 0; i < list.size(); i++)
+                names[i] = list.get(i).getName() + "  " + list.get(i).getAddress();
+            new AlertDialog.Builder(this).setTitle("选择对方设备")
+                    .setItems(names, (d, w) -> {
+                        final android.bluetooth.BluetoothDevice dev = list.get(w);
+                        new Thread(() -> {
+                            try {
+                                a.cancelDiscovery();
+                                android.bluetooth.BluetoothSocket s = dev.createRfcommSocketToServiceRecord(NET_UUID);
+                                s.connect();
+                                startNet(s, 2);
+                            } catch (Exception e) {
+                                toastMain("连接失败: " + e.getMessage());
+                            }
+                        }).start();
+                    }).show();
+        });
+    }
+
+    private void startNet(android.bluetooth.BluetoothSocket s, int mode) {
+        netSocket = s;
+        Native.netEnable(mode, mode == 1 ? 0 : 1);
+        netRunning = true;
+        toastMain(mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P");
+        new Thread(() -> {
+            try {
+                java.io.DataOutputStream out = new java.io.DataOutputStream(s.getOutputStream());
+                while (netRunning) {
+                    long v = Native.netPoll();
+                    if (v < 0) { Thread.sleep(1); continue; }
+                    out.writeInt((int) (v >> 32));
+                    out.writeInt((int) v);
+                    out.flush();
+                }
+            } catch (Exception e) {
+                netLost(e);
+            }
+        }).start();
+        new Thread(() -> {
+            try {
+                java.io.DataInputStream in = new java.io.DataInputStream(s.getInputStream());
+                while (netRunning) {
+                    int f = in.readInt(), m = in.readInt();
+                    Native.netDeliver(f, m);
+                }
+            } catch (Exception e) {
+                netLost(e);
+            }
+        }).start();
+    }
+
+    private void netLost(Exception e) {
+        if (!netRunning) return;
+        netRunning = false;
+        Native.netEnable(0, 0);
+        toastMain("联机断开: " + e.getMessage());
+    }
+
+    private void stopNet() {
+        boolean was = netRunning;
+        netRunning = false;
+        Native.netEnable(0, 0);
+        try { if (netSocket != null) netSocket.close(); } catch (Exception ignored) {}
+        try { if (netServer != null) netServer.close(); } catch (Exception ignored) {}
+        netSocket = null;
+        netServer = null;
+        if (was) toastMain("已断开联机");
     }
 
     // ---------------- 画面设置 ----------------
