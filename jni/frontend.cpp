@@ -243,12 +243,13 @@ static std::atomic<int> g_padPort{0};          // 本机控制的玩家口
 static std::atomic<uint32_t> g_txFrame{0};
 static std::atomic<uint32_t> g_txMask{0};
 static std::atomic<bool> g_txDirty{false};
-static std::atomic<uint32_t> g_rxFrame[128];
-static uint32_t g_rxMask[128];
+static std::atomic<uint32_t> g_rxFrame[30];
+static uint32_t g_rxMask[30];
 static std::atomic<uint32_t> g_rxLatest{0};
 static uint32_t g_lastRemote = 0;
 static const int NET_DELAY = 4;
-static std::atomic<uint32_t> g_txRing[128];
+static const int  NET_RING  = 30;   // 30 帧环形缓冲（Kawaks 同款）
+static std::atomic<uint32_t> g_txRing[30];
 static std::atomic<uint32_t> g_txLatest{0};
 static uint32_t g_txSent = 0;
 static std::atomic<int> g_restartReq{0};
@@ -260,16 +261,21 @@ static void syncNet() {
     g_txFrame.store(f);
     uint32_t m = g_btn[g_padPort.load()].load();
     g_txMask.store(m);
-    g_txRing[f & 127].store(m);
+    { unsigned i = f % (unsigned) NET_RING; g_txRing[i].store(m); }
     g_txLatest.store(f);
     g_txDirty.store(true);
     uint32_t want = f > (uint32_t) NET_DELAY ? f - (uint32_t) NET_DELAY : 0;
     if (f > (uint32_t) NET_DELAY) {
-        while (g_netMode.load() && g_running && g_rxFrame[want & 127].load() != want) usleep(500);
+        for (int i = 0; i < 4 && g_netMode.load() && g_running; i++) {   // 最多 4 ms，Kawaks 同款
+            if (g_rxFrame[want % (unsigned) NET_RING].load() == want) break;
+            usleep(1000);
+        }
     }
-    uint32_t mask = (g_rxFrame[want & 127].load() == want) ? g_rxMask[want & 127] : g_lastRemote;
-    g_lastRemote = mask;
-    g_btn[1 - g_padPort.load()].store(mask);
+    { unsigned wi = want % (unsigned) NET_RING;
+      uint32_t mask = (g_rxFrame[wi].load() == want) ? g_rxMask[wi] : g_lastRemote;
+      g_lastRemote = mask;
+      g_btn[1 - g_padPort.load()].store(mask);
+    }
 }
 static void inputPollCb(void) {}
 static int16_t inputStateCb(unsigned port, unsigned device, unsigned index, unsigned id) {
@@ -337,7 +343,7 @@ static void runLoop() {
             g_btn[0].store(0); g_btn[1].store(0);
             g_txFrame.store(0); g_txMask.store(0); g_txDirty.store(false);
             g_txLatest.store(0); g_txSent = 0;
-            for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
+            for (int i = 0; i < 30; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
             g_rxLatest.store(0); g_lastRemote = 0;
             LOGI("reset done in core thread");
             g_restartDone.fetch_add(1);
@@ -654,7 +660,7 @@ Java_com_ng_emu_Native_netEnable(JNIEnv *, jclass, jint mode, jint localPort) {
     g_rxLatest.store(0);
     g_lastRemote = 0;
     g_txLatest.store(0); g_txSent = 0;
-    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0); g_rxMask[i] = 0; g_txRing[i].store(0); }
+    for (int i = 0; i < 30; i++) { g_rxFrame[i].store(0); g_rxMask[i] = 0; g_txRing[i].store(0); }
     g_padPort.store(localPort ? 1 : 0);
     g_netMode.store(mode);
     if (!mode) { g_btn[0].store(0); g_btn[1].store(0); }
@@ -679,7 +685,7 @@ Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
     g_btn[0].store(0); g_btn[1].store(0);
     g_txFrame.store(0); g_txMask.store(0); g_txDirty.store(false);
     g_txLatest.store(0); g_txSent = 0;
-    for (int i = 0; i < 128; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
+    for (int i = 0; i < 30; i++) { g_rxFrame[i].store(0xFFFFFFFFu); g_txRing[i].store(0); }
     g_rxLatest.store(0);
     g_lastRemote = 0;
     LOGI("net restart");
@@ -691,7 +697,7 @@ Java_com_ng_emu_Native_netPoll(JNIEnv *, jclass) {
     uint32_t latest = g_txLatest.load();
     if (g_txSent >= latest) return -1;
     uint32_t f = g_txSent + 1;
-    uint32_t m = g_txRing[f & 127].load();
+    uint32_t m = g_txRing[f % (unsigned) NET_RING].load();
     g_txSent = f;
     return (jlong) (((uint64_t) f << 32) | m);
 }
@@ -699,8 +705,9 @@ Java_com_ng_emu_Native_netPoll(JNIEnv *, jclass) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_ng_emu_Native_netDeliver(JNIEnv *, jclass, jint frame, jint mask) {
     uint32_t f = (uint32_t) frame;
-    g_rxFrame[f & 127].store(f);
-    g_rxMask[f & 127] = (uint32_t) mask;
+    { unsigned i = f % (unsigned) NET_RING;
+      g_rxFrame[i].store(f);
+      g_rxMask[i] = (uint32_t) mask; }
     if (f > g_rxLatest.load()) g_rxLatest.store(f);
 }
 
