@@ -18,6 +18,7 @@ public final class Native {
     public static native void setVideo(int scaleMode, int filter, float bright, float contrast, float sat);
     public static native void setCoreVariable(String key, String value);
     public static native String getCoreVariable(String key);
+    public static native String getDriver();
     public static native float getFps();
     public static native float getTargetFps();
     public static native long getFrames();

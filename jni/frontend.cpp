@@ -713,6 +713,20 @@ Java_com_ng_emu_Native_setCoreVariable(JNIEnv *env, jclass, jstring key, jstring
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_com_ng_emu_Native_getDriver(JNIEnv *env, jclass) {
+    const std::string pre = "fbneo-dipswitch-";
+    for (const auto &kv : g_varDef) {
+        if (kv.first.compare(0, pre.size(), pre) == 0) {
+            std::string rest = kv.first.substr(pre.size());
+            size_t d = rest.find('-');
+            if (d != std::string::npos) rest = rest.substr(0, d);
+            return env->NewStringUTF(rest.c_str());
+        }
+    }
+    return env->NewStringUTF("");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_ng_emu_Native_getCoreVariable(JNIEnv *env, jclass, jstring key) {
     const char *k = env->GetStringUTFChars(key, nullptr);
     auto it = g_vars.find(k);

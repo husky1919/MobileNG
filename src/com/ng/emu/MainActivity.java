@@ -73,6 +73,40 @@ public class MainActivity extends Activity {
     private static final String[] NEO_LABELS = {"自动（跟随 DIP 开关）", "MVS 欧洲", "MVS 美国", "MVS 日本",
             "AES 欧洲", "AES 日本", "Universe BIOS"};
 
+    // ---------------- 基板识别 ----------------
+    private static final java.util.HashSet<String> BOARD_CPS1 = new java.util.HashSet<>(java.util.Arrays.asList(
+            "3wonders", "1941", "area88", "avengers", "bionicc", "blktiger", "cawing", "cbasebal", "ckongs",
+            "captcomm", "dino", "dinou", "dinohunt", "dynastyw", "ffight", "forgottn", "ghouls", "gng",
+            "knights", "kod", "lastduel", "lwings", "mbombrd", "mercs", "mswu", "mtwins", "nemo", "pang3",
+            "punisher", "qad", "qtono2", "sf2", "sf2ce", "sf2hf", "sf2m", "sf2rb", "sf2rb2", "strider",
+            "tiga", "unsquad", "varth", "willow", "wof", "wofj"));
+    private static final java.util.HashSet<String> BOARD_CPS2 = new java.util.HashSet<>(java.util.Arrays.asList(
+            "1944", "19xx", "armwar", "avsp", "csclub", "cybots", "ddsom", "ddtod", "ddx", "dimahoo",
+            "dstlk", "ecofghtr", "gigawing", "hsf2", "jyangoku", "megaman2", "mmatrix", "mpang", "msh",
+            "mshvsf", "mvsc", "nwarr", "phoenix", "progear", "pzloop2", "ringdest", "rcmakaim", "sgemf",
+            "spf2t", "ssf2", "ssf2t", "ssf2x", "ssf2xj", "techromn", "vhunt2", "vsav", "vsav2", "xmcota",
+            "xmvsf", "qndream", "sgemfa", "spf2ta", "ssf2ta"));
+    private static final String[] BOARD_NEO = {
+            "2020bb", "3countb", "alpham2", "androdun", "aodk", "aof", "bakatono", "bangbead", "blazstar",
+            "breakers", "bstars", "burningf", "crsword", "cthd2k3", "cyberlip", "eightman", "fatfur",
+            "fatfury", "fightfev", "ganryu", "garou", "goalx3", "gowcaizr", "gtstrikr", "kabukikl",
+            "knight", "kof", "kotm", "lastblad", "lbowling", "legendos", "lresort", "magdrop", "matrim",
+            "miexchng", "mma", "moshougi", "mrd", "mslug", "msl", "mutnat", "nam1975", "ncombat",
+            "neocup", "neodrift", "neomrdo", "ninjamas", "nitd", "panicbom", "pbobblen", "pgoal",
+            "preisle2", "pulstar", "puzzledp", "ragnagrd", "rbff", "ridhero", "rmsodk", "roboarmy",
+            "s1945", "samsho", "savagere", "sengoku", "sonicwi", "spinmast", "strhoop", "superspy",
+            "svc", "tophuntr", "trally", "turfmast", "tws96", "twinsprk", "viewpoin", "wakuwak7",
+            "wh1", "wh2", "whp", "wjammers", "zedblade", "zupapa"};
+
+    static String boardLabel(String file) {
+        String n = file.toLowerCase(Locale.ROOT);
+        if (n.endsWith(".zip")) n = n.substring(0, n.length() - 4);
+        if (BOARD_CPS1.contains(n)) return "CPS1";
+        if (BOARD_CPS2.contains(n)) return "CPS2";
+        for (String p : BOARD_NEO) if (n.startsWith(p)) return "NEOGEO";
+        return "";
+    }
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -157,10 +191,7 @@ public class MainActivity extends Activity {
         Native.setLogFile(logFile.getAbsolutePath());
         Logger.log("core file " + coreFile.length() + " bytes");
         if (!new File(systemDir, "neogeo.zip").exists()) {
-            Logger.log("BIOS 缺失");
-            toastMain("还缺 BIOS：请选择 neogeo.zip 导入");
-            runOnUiThread(this::importBios);
-            return;
+            Logger.log("未导入 neogeo.zip（仅 NeoGeo 游戏需要）");
         }
         if (!initCore()) { toastMain("核心加载失败"); return; }
 
@@ -197,7 +228,7 @@ public class MainActivity extends Activity {
         switch (it) {
             case "游戏列表": listGames(); break;
             case "选择任意 ROM": pick(REQ_ROM); break;
-            case "导入 BIOS (neogeo.zip)": importBios(); break;
+            case "导入 BIOS/资源 (.zip)": importBios(); break;
             case "导入核心 (.so)": importCore(); break;
             case "存档": saveState(); break;
             case "读档": loadState(); break;
@@ -317,7 +348,7 @@ public class MainActivity extends Activity {
         final List<String> items = new ArrayList<>();
         items.add("游戏列表");
         items.add("选择任意 ROM");
-        items.add("导入 BIOS (neogeo.zip)");
+        items.add("导入 BIOS/资源 (.zip)");
         items.add("导入核心 (.so)");
         items.add("存档");
         items.add("读档");
@@ -661,12 +692,17 @@ public class MainActivity extends Activity {
                 return;
             }
             final String[] names = map.keySet().toArray(new String[0]);
+            final String[] labels = new String[names.length];
+            for (int i = 0; i < names.length; i++) {
+                String b = boardLabel(names[i]);
+                labels[i] = b.isEmpty() ? names[i] : names[i] + "   · " + b;
+            }
             final String[] ids = new String[names.length];
             int k = 0;
             for (Map.Entry<String, String> e : map.entrySet()) ids[k++] = e.getValue();
             runOnUiThread(() -> new AlertDialog.Builder(this)
                     .setTitle("选择游戏")
-                    .setItems(names, (d, i) -> {
+                    .setItems(labels, (d, i) -> {
                         Uri tree = Uri.parse(prefs().getString("tree", null));
                         Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, ids[i]);
                         playUri(doc, names[i]);
@@ -725,7 +761,9 @@ public class MainActivity extends Activity {
         if (req == REQ_BIOS) {
             new Thread(() -> {
                 try {
-                    File dst = new File(systemDir, "neogeo.zip");
+                    String nm = displayName(uri).toLowerCase(Locale.ROOT);
+                    if (!nm.endsWith(".zip")) nm = "neogeo.zip";
+                    File dst = new File(systemDir, nm);
                     InputStream in = getContentResolver().openInputStream(uri);
                     OutputStream out = new FileOutputStream(dst);
                     byte[] b = new byte[1 << 16];
@@ -733,7 +771,7 @@ public class MainActivity extends Activity {
                     while ((n = in.read(b)) > 0) out.write(b, 0, n);
                     out.close();
                     in.close();
-                    toastMain("BIOS 已导入");
+                    toastMain("已导入 " + dst.getName());
                     String r = prefs().getString("rom", null);
                     if (r != null && new File(r).exists()) startGame(new File(r));
                     else runOnUiThread(this::listGames);
@@ -817,7 +855,8 @@ public class MainActivity extends Activity {
         }
         if (!initCore()) { toastMain("核心加载失败"); return; }
         romFile = f;
-        Logger.log("loadRom " + f.getName() + " (" + f.length() + ")");
+        String board = boardLabel(f.getName());
+        Logger.log("loadRom " + f.getName() + " (" + f.length() + ")" + (board.isEmpty() ? "" : " board=" + board));
         int sr = Native.loadRom(f.getAbsolutePath());
         Logger.log("loadRom -> " + sr);
         if (sr <= 0) {
