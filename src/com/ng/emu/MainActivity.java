@@ -510,12 +510,36 @@ public class MainActivity extends Activity {
 
     private void netMenu() {
         String st = !netRunning ? "未连接" : (Native.netState() == 1 ? "主机（1P）" : "客户端（2P）");
+        int d = prefs().getInt("netdelay", 4);
+        String[] items = {"创建房间（我当 1P）", "加入房间（我当 2P）",
+                          "联机延迟：" + d + " 帧", "断开联机"};
         new AlertDialog.Builder(this)
                 .setTitle("联机（蓝牙）当前：" + st)
-                .setItems(new String[]{"创建房间（我当 1P）", "加入房间（我当 2P）", "断开联机"}, (d, w) -> {
+                .setItems(items, (d2, w) -> {
                     if (w == 0) createRoom();
                     else if (w == 1) joinRoom();
+                    else if (w == 2) netDelayMenu();
                     else stopNet();
+                }).show();
+    }
+
+    private void netDelayMenu() {
+        final int cur = prefs().getInt("netdelay", 4);
+        final int[] delays = {0, 2, 4, 6, 8, 12, 16, 20, 24, 30};
+        String[] labels = new String[delays.length];
+        int idx = 0;
+        for (int i = 0; i < delays.length; i++) {
+            labels[i] = delays[i] + " 帧" + (delays[i] == 0 ? "（最低延迟，易不同步）" : (delays[i] <= 4 ? "" : "（更稳）"));
+            if (delays[i] == cur) idx = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("联机延迟（越高越稳，延迟越大越流畅）")
+                .setSingleChoiceItems(labels, idx, (d, w) -> {
+                    int d2 = delays[w];
+                    prefs().edit().putInt("netdelay", d2).apply();
+                    Native.setNetDelay(d2);
+                    d.dismiss();
+                    toastMain("联机延迟 " + d2 + " 帧" + (netRunning ? "（下一局生效）" : ""));
                 }).show();
     }
 
@@ -594,6 +618,7 @@ public class MainActivity extends Activity {
     private void startNet(android.bluetooth.BluetoothSocket s, int mode) {
         netSocket = s;
         netRunning = true;
+        Native.setNetDelay(prefs().getInt("netdelay", 4));
         Native.netEnable(mode, mode == 1 ? 0 : 1);
 
         // 1) 配置签名校验：两端交换 neomode/cpuspeed/romCrc，不一致就拒绝

@@ -247,7 +247,8 @@ static std::atomic<uint32_t> g_rxFrame[30];
 static uint32_t g_rxMask[30];
 static std::atomic<uint32_t> g_rxLatest{0};
 static uint32_t g_lastRemote = 0;
-static const int NET_DELAY = 4;
+static std::atomic<int> g_netDelay{4};  // 默认 4 帧，可运行时改
+static void setNetDelay(int d) { if (d < 0) d = 0; if (d > 30) d = 30; g_netDelay.store(d); }
 static const int  NET_RING  = 30;   // 30 帧环形缓冲（Kawaks 同款）
 static std::atomic<uint32_t> g_txRing[30];
 static std::atomic<uint32_t> g_txLatest{0};
@@ -264,12 +265,14 @@ static void syncNet() {
     { unsigned i = f % (unsigned) NET_RING; g_txRing[i].store(m); }
     g_txLatest.store(f);
     g_txDirty.store(true);
-    uint32_t want = f > (uint32_t) NET_DELAY ? f - (uint32_t) NET_DELAY : 0;
-    if (f > (uint32_t) NET_DELAY) {
-        for (int i = 0; i < 4 && g_netMode.load() && g_running; i++) {   // 最多 4 ms，Kawaks 同款
-            if (g_rxFrame[want % (unsigned) NET_RING].load() == want) break;
-            usleep(1000);
-        }
+    int delay = g_netDelay.load();
+    uint32_t want = f > (uint32_t) delay ? f - (uint32_t) delay : 0;
+    if (f > (uint32_t) delay) {
+        // 死等对端输入，绝不用旧输入顶替（那是不同步的根源）。
+        // 只有断线(g_netMode=0)或退出(g_running=false)才放弃。
+        while (g_netMode.load() && g_running &&
+               g_rxFrame[want % (unsigned) NET_RING].load() != want)
+            usleep(500);
     }
     { unsigned wi = want % (unsigned) NET_RING;
       uint32_t mask = (g_rxFrame[wi].load() == want) ? g_rxMask[wi] : g_lastRemote;
@@ -714,6 +717,12 @@ Java_com_ng_emu_Native_netDeliver(JNIEnv *, jclass, jint frame, jint mask) {
 extern "C" JNIEXPORT jint JNICALL
 Java_com_ng_emu_Native_netState(JNIEnv *, jclass) {
     return g_netMode.load();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_setNetDelay(JNIEnv *, jclass, jint d) {
+    setNetDelay(d);
+    LOGI("net delay = %d frames", d);
 }
 
 extern "C" JNIEXPORT jint JNICALL

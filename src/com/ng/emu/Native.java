@@ -24,6 +24,7 @@ public final class Native {
     public static native long netPoll();
     public static native void netDeliver(int frame, int mask);
     public static native int netState();
+    public static native void setNetDelay(int delay);
     public static native float getFps();
     public static native float getTargetFps();
     public static native long getFrames();
