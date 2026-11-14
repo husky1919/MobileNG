@@ -50,7 +50,7 @@ javac -source 11 -target 11 -classpath "$JAR" -d build/classes src/com/ng/emu/*.
 
 echo "[5/6] dex"
 rm -rf build/dex && mkdir -p build/dex
-d8 --lib "$JAR" --min-api 26 --output build/dex $(find build/classes -name "*.class")
+d8 --lib "$JAR" --min-api 24 --output build/dex $(find build/classes -name "*.class")
 
 echo "[6/6] 打包签名"
 cd build/apk
@@ -67,7 +67,7 @@ if [ ! -f ng.jks ]; then
         -dname "CN=NeoEmu, OU=dev, O=ng, L=SZ, S=GD, C=CN"
 fi
 apksigner sign --ks ng.jks --ks-pass pass:neogeo --key-pass pass:neogeo \
-    --ks-key-alias ng --min-sdk-version 26 --out "$APKNAME" unsigned.apk
+    --ks-key-alias ng --min-sdk-version 24 --out "$APKNAME" unsigned.apk
 apksigner verify "$APKNAME"
 ls -lh "$APKNAME"
 echo "OK: $ROOT/build/$APKNAME"
