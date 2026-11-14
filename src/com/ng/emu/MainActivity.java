@@ -595,35 +595,56 @@ public class MainActivity extends Activity {
         netSocket = s;
         netRunning = true;
         Native.netEnable(mode, mode == 1 ? 0 : 1);
-        // 关键：两端复位到同一确定状态，否则模拟状态早已错开
+
+        // 1) 配置签名校验：两端交换 neomode/cpuspeed/romCrc，不一致就拒绝
+        final String myMode = prefs().getString("neomode", "UNIBIOS");
+        final int myCpu = prefs().getInt("cpuspeed", 100);
+        final String myRom = romFile != null ? fileCrc4K(romFile) : "no_rom";
+        final java.io.DataOutputStream out; final java.io.DataInputStream in;
+        try {
+            out = new java.io.DataOutputStream(s.getOutputStream());
+            in = new java.io.DataInputStream(s.getInputStream());
+        } catch (Exception e) { netLost(e); return; }
+        final String peerMode; final int peerCpu; final String peerRom;
+        try {
+            if (mode == 1) {  // 主机：先发后收
+                out.writeUTF(myMode); out.writeInt(myCpu); out.writeUTF(myRom); out.flush();
+                peerMode = in.readUTF(); peerCpu = in.readInt(); peerRom = in.readUTF();
+            } else {          // 客户端：先收后发
+                peerMode = in.readUTF(); peerCpu = in.readInt(); peerRom = in.readUTF();
+                out.writeUTF(myMode); out.writeInt(myCpu); out.writeUTF(myRom); out.flush();
+            }
+        } catch (Exception e) { netLost(e); return; }
+
+        final String mm = myMode, pr = myRom, pm = peerMode, rr = peerRom;
         runOnUiThread(() -> {
+            if (!mm.equals(pm)) { toastMain("NeoGeo 模式不一致：本机 " + mm + " / 对端 " + pm + "，已断开"); netLost(new Exception("mode mismatch")); return; }
+            if (myCpu != peerCpu) { toastMain("CPU 频率不一致：本机 " + myCpu + "% / 对端 " + peerCpu + "%，已断开"); netLost(new Exception("cpu mismatch")); return; }
+            if (!pr.equals(rr)) { toastMain("ROM 不一致，已断开"); netLost(new Exception("rom mismatch")); return; }
             if (loaded) Native.netRestart();
-            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，游戏已复位");
+            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，配置已校验，游戏已复位");
         });
+
+        // 2) 严格同步：发送帧 + 帧号，接收帧 + 帧号
+        final java.io.DataOutputStream fout = out; final java.io.DataInputStream fin = in;
         new Thread(() -> {
             try {
-                java.io.DataOutputStream out = new java.io.DataOutputStream(s.getOutputStream());
                 while (netRunning) {
                     long v = Native.netPoll();
                     if (v < 0) { Thread.sleep(1); continue; }
-                    out.writeInt((int) (v >> 32));
-                    out.writeInt((int) v);
-                    out.flush();
+                    fout.writeInt((int) (v >> 32));
+                    fout.writeInt((int) v);
+                    fout.flush();
                 }
-            } catch (Exception e) {
-                netLost(e);
-            }
+            } catch (Exception e) { netLost(e); }
         }).start();
         new Thread(() -> {
             try {
-                java.io.DataInputStream in = new java.io.DataInputStream(s.getInputStream());
                 while (netRunning) {
-                    int f = in.readInt(), m = in.readInt();
+                    int f = fin.readInt(), m = fin.readInt();
                     Native.netDeliver(f, m);
                 }
-            } catch (Exception e) {
-                netLost(e);
-            }
+            } catch (Exception e) { netLost(e); }
         }).start();
     }
 
@@ -643,6 +664,19 @@ public class MainActivity extends Activity {
         netSocket = null;
         netServer = null;
         if (was) toastMain("已断开联机");
+    }
+
+
+    private String fileCrc4K(File f) {
+        if (!f.exists()) return "missing";
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[4096];
+            int n = in.read(b);
+            if (n <= 0) return "empty";
+            java.util.zip.CRC32 c = new java.util.zip.CRC32();
+            c.update(b, 0, n);
+            return Long.toHexString(c.getValue());
+        } catch (Exception e) { return "err"; }
     }
 
     // ---------------- 画面设置 ----------------
