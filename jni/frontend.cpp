@@ -247,7 +247,7 @@ static std::atomic<uint32_t> g_rxFrame[128];
 static uint32_t g_rxMask[128];
 static std::atomic<uint32_t> g_rxLatest{0};
 static uint32_t g_lastRemote = 0;
-static const int NET_DELAY = 3;
+static const int NET_DELAY = 4;
 
 static void syncNet() {
     if (!g_netMode.load()) return;
@@ -257,20 +257,17 @@ static void syncNet() {
     g_txMask.store(m);
     g_txDirty.store(true);
     uint32_t want = f > (uint32_t) NET_DELAY ? f - NET_DELAY : 0;
-    uint32_t mask;
-    if (g_rxFrame[want & 127].load() == want) mask = g_rxMask[want & 127];
-    else mask = g_lastRemote;
-    g_lastRemote = mask;
-    g_btn[1 - g_padPort.load()].store(mask);
-
-    // 跑太前就等一等，避免漂移累积
-    uint32_t rl = g_rxLatest.load();
-    if (f > rl + 15) {
-        for (int i = 0; i < 60 && g_running; i++) {
-            if (g_rxLatest.load() > f - 15) break;
-            usleep(2000);
+    // 严格等这一帧的对端输入：缺了就必须等，绝不能用旧输入顶上，
+    // 否则两端使用的输入序列不同，模拟状态必然分叉。
+    if (f > (uint32_t) NET_DELAY) {
+        for (int i = 0; i < 500 && g_running; i++) {
+            if (g_rxFrame[want & 127].load() == want) break;
+            usleep(1000);
         }
     }
+    uint32_t mask = (g_rxFrame[want & 127].load() == want) ? g_rxMask[want & 127] : g_lastRemote;
+    g_lastRemote = mask;
+    g_btn[1 - g_padPort.load()].store(mask);
 }
 static void inputPollCb(void) {}
 static int16_t inputStateCb(unsigned port, unsigned device, unsigned index, unsigned id) {
@@ -647,6 +644,21 @@ Java_com_ng_emu_Native_netEnable(JNIEnv *, jclass, jint mode, jint localPort) {
     g_netMode.store(mode);
     if (!mode) { g_btn[0].store(0); g_btn[1].store(0); }
     LOGI("net mode=%d pad=%d", mode, localPort ? 1 : 0);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
+    // 复位游戏并把联机帧计数归零，保证两端“复位后第 N 帧”一一对应
+    if (g_loaded) p_reset();
+    g_btn[0].store(0);
+    g_btn[1].store(0);
+    g_txFrame.store(0);
+    g_txMask.store(0);
+    g_txDirty.store(false);
+    for (int i = 0; i < 128; i++) g_rxFrame[i].store(0xFFFFFFFFu);
+    g_rxLatest.store(0);
+    g_lastRemote = 0;
+    LOGI("net restart");
 }
 
 extern "C" JNIEXPORT jlong JNICALL

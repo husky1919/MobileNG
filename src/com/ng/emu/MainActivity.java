@@ -593,9 +593,13 @@ public class MainActivity extends Activity {
 
     private void startNet(android.bluetooth.BluetoothSocket s, int mode) {
         netSocket = s;
-        Native.netEnable(mode, mode == 1 ? 0 : 1);
         netRunning = true;
-        toastMain(mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P");
+        Native.netEnable(mode, mode == 1 ? 0 : 1);
+        // 关键：两端复位到同一确定状态，否则模拟状态早已错开
+        runOnUiThread(() -> {
+            if (loaded) Native.netRestart();
+            toastMain((mode == 1 ? "联机已建立：你是 1P" : "联机已建立：你是 2P") + "，游戏已复位");
+        });
         new Thread(() -> {
             try {
                 java.io.DataOutputStream out = new java.io.DataOutputStream(s.getOutputStream());
@@ -1044,6 +1048,7 @@ public class MainActivity extends Activity {
 
     // ---------------- 运行 ----------------
     private void startGame(File f) {
+        if (netRunning) stopNet();
         stopAudio();
         if (loaded) {
             Native.stop();
