@@ -22,6 +22,7 @@ public final class Native {
     public static native void netEnable(int mode, int localPort);
     public static native void netRestart();
     public static native void netPause(int on);
+    public static native void gamePause(int on);
     public static native long netPoll();
     public static native void netDeliver(int frame, int mask);
     public static native int netState();

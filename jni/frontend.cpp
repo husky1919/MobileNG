@@ -251,6 +251,7 @@ static std::atomic<int> g_netDelay{4};  // 默认 4 帧，可运行时改
 static void setNetDelay(int d) { if (d < 0) d = 0; if (d > 30) d = 30; g_netDelay.store(d); }
 static const int  NET_RING  = 30;   // 30 帧环形缓冲（Kawaks 同款）
 static std::atomic<int> g_netPause{0}; // 1=暂停模拟，仅同步输入
+static std::atomic<int> g_gamePause{0}; // 1=游戏暂停（画面定格）
 static std::atomic<uint32_t> g_txRing[30];
 static std::atomic<uint32_t> g_txLatest{0};
 static uint32_t g_txSent = 0;
@@ -259,6 +260,8 @@ static std::atomic<int> g_restartDone{0};
 
 static void syncNet() {
     if (!g_netMode.load()) return;
+    // 游戏暂停时不同步
+    if (g_gamePause.load()) return;
     // 如果暂停，只处理输入同步，不推进游戏帧号
     if (g_netPause.load()) {
         // 仍然从 rxFrame 读取对端输入，用于锁步，但不产生新帧号
@@ -369,6 +372,7 @@ static void runLoop() {
     int tick = 0, stat = 0, win = 0;
     double t0 = nowSec(), tWin = nowSec();
     while (g_running) {
+        // 游戏暂停：画面定格，跳过帧更新
         if (g_restartReq.exchange(0)) {
             p_reset();
             g_btn[0].store(0); g_btn[1].store(0);
@@ -379,6 +383,7 @@ static void runLoop() {
             LOGI("reset done in core thread");
             g_restartDone.fetch_add(1);
         }
+        if (g_gamePause.load()) { next = nowSec(); usleep(2000); continue; }  // 暂停：画面定格
         if (g_ncheats && (tick++ % 60) == 0) applyCheats();
         syncNet();
         p_run();
@@ -724,8 +729,15 @@ Java_com_ng_emu_Native_netRestart(JNIEnv *, jclass) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_ng_emu_Native_netPause(JNIEnv *, jclass, jint on) {
-    g_netPause.store(on ? 1 : 0);
-    LOGI("net pause=%d", on ? 1 : 0);
+    g_gamePause.store(on ? 1 : 0);
+    if (on) g_ar.store(g_aw.load());   // 清音频环，恢复后不重播残音
+    LOGI("pause=%d", on ? 1 : 0);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ng_emu_Native_gamePause(JNIEnv *, jclass, jint on) {
+    g_gamePause.store(on ? 1 : 0);
+    LOGI("game pause=%d", on ? 1 : 0);
 }
 
 extern "C" JNIEXPORT jlong JNICALL

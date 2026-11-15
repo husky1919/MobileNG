@@ -21,6 +21,8 @@ public class PadView extends View {
     private static final int N = 9;
 
     public interface Listener { void onLayoutChanged(String layout); }
+    private Runnable pauseListener;
+    public void setPauseListener(Runnable r) { pauseListener = r; }
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -37,6 +39,7 @@ public class PadView extends View {
     private float mR;
     private float btnR;
     private final RectF[] rect = {new RectF(), new RectF()};
+    private final RectF pauseRect = new RectF();
 
     private final float[] ex = new float[N], ey = new float[N];
     private final float[] nx = new float[N], ny = new float[N];
@@ -150,6 +153,7 @@ public class PadView extends View {
 
         rect[0].set(w - u * 6.4f, u * 0.4f, w - u * 3.4f, u * 1.6f);
         rect[1].set(w - u * 3.1f, u * 0.4f, w - u * 0.3f, u * 1.6f);
+        pauseRect.set(u * 0.3f, u * 0.4f, u * 2.3f, u * 1.6f);
     }
 
     private void sideLayout(int w, int h, float u, float bar) {
@@ -175,6 +179,8 @@ public class PadView extends View {
         float hh = btnR * 0.5f;
         rect[0].set(rx - gx - btnR, y1 - hh, rx - gx + btnR, y1 + hh);
         rect[1].set(rx + gx - btnR, y1 - hh, rx + gx + btnR, y1 + hh);
+        float pw = bar * 0.7f;
+        pauseRect.set(bar / 2f - pw / 2f, u * 0.5f, bar / 2f + pw / 2f, u * 0.5f + btnR * 1.1f);
     }
 
     private void relayout(int w, int h) {
@@ -228,7 +234,12 @@ public class PadView extends View {
                     rect[i].centerX(), rect[i].centerY() + btnR * 0.28f, text);
         }
 
+        c.drawRoundRect(pauseRect, btnR * 0.35f, btnR * 0.35f, fill);
+        c.drawRoundRect(pauseRect, btnR * 0.35f, btnR * 0.35f, stroke);
+        c.drawText("❚❚", pauseRect.centerX(), pauseRect.centerY() + btnR * 0.28f, text);
+
         if (edit) {
+            c.drawRoundRect(pauseRect, btnR * 0.35f, btnR * 0.35f, editStroke);
             c.drawCircle(dpCx, dpCy, dpR + 6, editStroke);
             for (int i = 0; i < 4; i++) c.drawCircle(bx[i], by[i], btnR + 6, editStroke);
             for (int i = 0; i < 2; i++) c.drawCircle(mx[i], my[i], mR + 6, editStroke);
@@ -282,6 +293,7 @@ public class PadView extends View {
             if (dist(x, y, mx[i], my[i]) <= mR * 1.3f) return 6 + i;
         if (rect[0].contains(x, y)) return 4;
         if (rect[1].contains(x, y)) return 5;
+        if (pauseRect.contains(x, y)) return 9;
         return -1;
     }
 
@@ -376,6 +388,10 @@ public class PadView extends View {
             return;
         }
         int h = hit(x, y);
+        if (h == 9) {
+            if (pauseListener != null) pauseListener.run();
+            return;
+        }
         if (h >= 0) {
             pointerBtn.put(id, h);
             pressIndex(h, true);

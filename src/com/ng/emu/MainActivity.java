@@ -51,6 +51,7 @@ public class MainActivity extends Activity {
     private PadView pad;
     private File coreFile, systemDir, saveDir, romFile;
     private boolean loaded = false, coreInited = false;
+    private boolean gamePaused = false;
     private AudioThread audio;
     private int sampleRate = 48000;
     private File logFile;
@@ -137,6 +138,7 @@ public class MainActivity extends Activity {
         pad.preset(cfg);
         pad.setCustomLayout(prefs().getString("layout", null));
         pad.setListener(s1 -> prefs().edit().putString("layout", s1).apply());
+        pad.setPauseListener(this::togglePause);
 
         FrameLayout root = new FrameLayout(this);
         root.addView(gl, new FrameLayout.LayoutParams(-1, -1));
@@ -258,6 +260,8 @@ public class MainActivity extends Activity {
             case "查看日志": showLog(); break;
             case "系统信息 / BIOS": sysInfo(); break;
             case "内存编辑 [DEBUG]": memTool(); break;
+            case "暂停游戏":
+            case "继续游戏": togglePause(); break;
             case "重置游戏": if (loaded) Native.reset(); break;
             default: finish();
         }
@@ -377,6 +381,7 @@ public class MainActivity extends Activity {
         items.add("系统信息 / BIOS");
         boolean dbg = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (dbg) items.add("内存编辑 [DEBUG]");
+        items.add(gamePaused ? "继续游戏" : "暂停游戏");
         items.add("重置游戏");
         items.add("退出");
 
@@ -514,6 +519,8 @@ public class MainActivity extends Activity {
     private static final java.util.UUID NET_UUID =
             java.util.UUID.fromString("6f9a1b1e-3f6c-4a1e-9a53-1c9b2b6a7e21");
     private volatile boolean netRunning;
+    private volatile boolean paused;
+    private final java.util.concurrent.atomic.AtomicInteger pauseSend = new java.util.concurrent.atomic.AtomicInteger(0);
     private android.bluetooth.BluetoothSocket netSocket;
     private android.bluetooth.BluetoothServerSocket netServer;
     private Runnable pendingBt;
@@ -673,6 +680,9 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 while (netRunning) {
+                    int ps = pauseSend.getAndSet(0);
+                    if (ps == 1) { fout.writeInt(-1); fout.flush(); continue; }   // 暂停
+                    if (ps == 2) { fout.writeInt(-2); fout.flush(); continue; }   // 恢复
                     long v = Native.netPoll();
                     if (v < 0) { Thread.sleep(1); continue; }
                     fout.writeInt((int) (v >> 32));
@@ -684,7 +694,10 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 while (netRunning) {
-                    int f = fin.readInt(), m = fin.readInt();
+                    int f = fin.readInt();
+                    if (f == -1) { Native.netPause(1); paused = true; runOnUiThread(() -> toastMain("对方暂停了游戏")); continue; }
+                    if (f == -2) { Native.netPause(0); paused = false; continue; }
+                    int m = fin.readInt();
                     Native.netDeliver(f, m);
                 }
             } catch (Exception e) { netLost(e); }
@@ -694,6 +707,8 @@ public class MainActivity extends Activity {
     private void netLost(Exception e) {
         if (!netRunning) return;
         netRunning = false;
+        paused = false;
+        Native.netPause(0);
         Native.netEnable(0, 0);
         toastMain("联机断开: " + e.getMessage());
     }
@@ -701,6 +716,9 @@ public class MainActivity extends Activity {
     private void stopNet() {
         boolean was = netRunning;
         netRunning = false;
+        paused = false;
+        pauseSend.set(0);
+        Native.netPause(0);
         Native.netEnable(0, 0);
         try { if (netSocket != null) netSocket.close(); } catch (Exception ignored) {}
         try { if (netServer != null) netServer.close(); } catch (Exception ignored) {}
@@ -720,6 +738,21 @@ public class MainActivity extends Activity {
             c.update(b, 0, n);
             return Long.toHexString(c.getValue());
         } catch (Exception e) { return "err"; }
+    }
+
+    // ---------------- 暂停 ----------------
+    private void togglePause() {
+        if (!loaded) return;
+        if (!paused) {
+            paused = true;
+            Native.netPause(1);
+            if (netRunning) pauseSend.set(1);          // 通知对方暂停
+            runOnUiThread(() -> toastMain("已暂停（再按继续）"));
+        } else {
+            paused = false;
+            if (netRunning) pauseSend.set(2);          // 通知对方恢复
+            Native.netPause(0);
+        }
     }
 
     // ---------------- 画面设置 ----------------
