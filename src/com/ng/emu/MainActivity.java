@@ -239,7 +239,7 @@ public class MainActivity extends Activity {
         if (it.startsWith("CPU 频率")) { cpuSpeed(); return; }
         switch (it) {
             case "游戏列表": listGames(); break;
-            case "联机（蓝牙）": netMenu(); break;
+            case "联机（蓝牙 · Alpha）": netMenu(); break;
             case "选择任意 ROM": pick(REQ_ROM); break;
             case "导入 BIOS/资源 (.zip)": importBios(); break;
             case "导入核心 (.so)": importCore(); break;
@@ -363,7 +363,7 @@ public class MainActivity extends Activity {
         if (editLayout) { exitEdit(); return; }
         final List<String> items = new ArrayList<>();
         items.add("游戏列表");
-        items.add("联机（蓝牙）");
+        items.add("联机（蓝牙 · Alpha）");
         items.add("选择任意 ROM");
         items.add("导入 BIOS/资源 (.zip)");
         items.add("导入核心 (.so)");
