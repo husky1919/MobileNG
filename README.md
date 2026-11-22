@@ -85,7 +85,7 @@ build.sh                         一键构建
 
 ## 赞赏
 
-<img src="docs/donate.png" alt="微信赞赏码" width="260">
+<img src="docs/donate.png?v=2" alt="微信赞赏码" width="260">
 
 “请再三思考，量力而行。”
 

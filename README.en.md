@@ -67,7 +67,7 @@ The bundled build includes the unmodified FBNeo binary from the libretro buildbo
 
 ## Donate
 
-<img src="docs/donate.png" alt="WeChat reward QR" width="260">
+<img src="docs/donate.png?v=2" alt="WeChat reward QR" width="260">
 
 “Think carefully and give within your means.”
 
