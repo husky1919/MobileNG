@@ -2,7 +2,7 @@
 
 Android 上跑 Neo Geo 街机游戏的前端。自己写 libretro 宿主（C++/JNI），加载 FBNeo 核心，OpenGL ES 渲染，AudioTrack 出声，屏幕虚拟手柄。
 
-**不含任何游戏、BIOS 或模拟器核心**，运行时自行导入。
+**源码不含任何游戏 ROM 或 BIOS**；核心默认运行时自行导入，也可构建内置 FBNeo 核心的版本（见下文）。
 
 ---
 
@@ -32,11 +32,28 @@ bash build.sh            # 正式版  build/MobileNG.apk
 bash build.sh debug      # debug 版 build/MobileNG-debug.apk（包名 com.ng.emu.debug）
 ```
 
-`BUNDLE_CORE=1 bash build.sh` 会把 `build/core/fbneo_libretro_android.so` 打进 assets（默认不打包，运行时导入）。
+`BUNDLE_CORE=1 bash build.sh` 会把 `build/core/fbneo_libretro_android.so` 打进 `assets/core/libfbneo.so`（默认不打包，运行时导入）。
+
+## 下载
+
+[Releases](https://github.com/husky1919/MobileNG/releases) 提供两种包：
+
+| 资产 | 说明 |
+|---|---|
+| `MobileNG-<版本>-bundled.apk` | **内置 FBNeo 核心**，装完导入 BIOS 和 ROM 即可玩，无需另找 `.so` |
+| `MobileNG-<版本>.apk` | 不含核心，需在 App 里「导入核心 (.so)」 |
+
+内置的核心是 [libretro buildbot](https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/) 提供的 `fbneo_libretro_android.so` **原样二进制，未做任何修改**，仅为方便用户而打包。
+
+## 第三方许可
+
+- **FBNeo** — https://github.com/finalburnneo/FBNeo ，自带非商业许可（许可全文：https://github.com/finalburnneo/FBNeo/blob/master/src/license.txt ）。本程序以未修改的二进制形式使用该核心，保留其版权声明，仅作免费／非商业分发。App 菜单「开源许可」内可查看声明全文（`assets/FBNeo.txt`）。
+- 本程序自身的代码采用 MIT 许可，见 [LICENSE](LICENSE)。
+- 游戏 ROM、BIOS 不属于本项目，也不随包分发。
 
 ## 运行前准备
 
-1. **核心**：从 libretro buildbot 取 `fbneo_libretro_android.so.zip`（arm64-v8a），解压得到 `.so`，在 App 里「导入核心 (.so)」。
+1. **核心**：若使用 bundled 版可跳过本步。否则从 libretro buildbot 取 `fbneo_libretro_android.so.zip`（arm64-v8a），解压得到 `.so`，在 App 里「导入核心 (.so)」。
 2. **BIOS**：`neogeo.zip`（含 `sp-s3.sp1`、`sm1.sm1`、`sfix.sfx`、`000-lo.lo` 等），「导入 BIOS」。
 3. **游戏**：标准 FBNeo romset，例如 `mslug.zip`，用「游戏列表」指向所在目录即可。
 
@@ -58,4 +75,8 @@ build.sh                         一键构建
 
 ## 免责
 
-本项目仅包含模拟器前端代码，不附带游戏 ROM、BIOS 或第三方核心。所需文件请自行依所在地法律取得。游戏名称与商标归各自权利人所有。
+本项目仅包含模拟器前端代码，**不附带任何游戏 ROM 或 BIOS**，并**不用于商业用途**、不收取任何费用。
+
+内置核心版中的 FBNeo 二进制来自 libretro buildbot，未做修改，按其自带许可（非商业用途）使用并保留版权声明。如权利人认为打包方式不妥，可提 issue 联系移除，届时仅保留源码与不含核心的版本。
+
+游戏 ROM、BIOS 需自行依所在地法律取得。游戏名称与商标归各自权利人所有。
