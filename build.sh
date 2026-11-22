@@ -35,6 +35,7 @@ if [ -n "${BUNDLE_CORE:-}" ] && [ ! -f "$CORE" ]; then
     unzip -o -q build/fbneo.zip -d build/core
 fi
 if [ -n "${BUNDLE_CORE:-}" ]; then
+    mkdir -p build/apk/assets/core
     cp "$CORE" build/apk/assets/core/libfbneo.so
     echo "   (已打包核心)"
 else
