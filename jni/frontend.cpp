@@ -83,6 +83,8 @@ static std::string g_systemDir, g_saveDir, g_romPath;
 
 static std::map<std::string, std::string> g_vars;   // core option 当前值
 static std::map<std::string, std::string> g_varDef; // 默认值（核心注册时记下）
+static std::map<std::string, std::string> g_opts;   // 全部候选值（| 分隔）
+static std::string g_neomode;                 // 用户选定的 NeoGeo 模式（空=默认 UNIBIOS）
 
 static int   g_scaleMode = 0;   // 0 适应 1 整数倍 2 铺满
 static int   g_filter    = 0;   // 0 平滑 1 锐利 2 扫描线
@@ -106,6 +108,12 @@ static bool setVars(const retro_variable *v) {
         if (bar != std::string::npos) val = val.substr(0, bar);
         val = trim(val);
         g_varDef[v->key] = val;
+        { std::string all = v->value ? v->value : "";
+          size_t sc2 = all.find(';');
+          if (sc2 != std::string::npos) all = all.substr(sc2 + 1);
+          g_opts[v->key] = trim(all); }
+        // NeoGeo 模式：默认锁 UNIBIOS，唯一合法值集为 DIPSWITCH|UNIBIOS
+        if (std::string(v->key) == "fbneo-neogeo-mode") val = g_neomode.empty() ? "UNIBIOS" : g_neomode;
         if (g_vars.find(v->key) == g_vars.end()) g_vars[v->key] = val;
     }
     return true;
@@ -879,6 +887,7 @@ Java_com_ng_emu_Native_setCoreVariable(JNIEnv *env, jclass, jstring key, jstring
     const char *k = env->GetStringUTFChars(key, nullptr);
     const char *v = env->GetStringUTFChars(value, nullptr);
     g_vars[k] = v;
+    if (std::string(k) == "fbneo-neogeo-mode") g_neomode = v;
     LOGI("core option %s = %s", k, v);
     env->ReleaseStringUTFChars(key, k);
     env->ReleaseStringUTFChars(value, v);
@@ -896,6 +905,24 @@ Java_com_ng_emu_Native_getDriver(JNIEnv *env, jclass) {
         }
     }
     return env->NewStringUTF("");
+}
+
+// 导出所有 DIP 开关项：每行 "key\t默认值\t候选1|候选2|..."
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_ng_emu_Native_getDipList(JNIEnv *env, jclass) {
+    const std::string pre = "fbneo-dipswitch-";
+    std::string out;
+    for (const auto &kv : g_varDef) {
+        if (kv.first.compare(0, pre.size(), pre) != 0) continue;
+        out += kv.first;
+        out += '\t';
+        auto it = g_vars.find(kv.first);
+        out += (it == g_vars.end() ? kv.second : it->second);
+        out += '\t';
+        out += g_opts.count(kv.first) ? g_opts[kv.first] : kv.second;
+        out += '\n';
+    }
+    return env->NewStringUTF(out.c_str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL

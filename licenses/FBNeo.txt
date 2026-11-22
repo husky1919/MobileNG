@@ -1,0 +1,17 @@
+MobileNG 使用了 FBNeo libretro 核心。
+This app bundles / loads the FBNeo libretro core.
+
+FBNeo (FinalBurn Neo)
+  Home:    https://github.com/finalburnneo/FBNeo
+  Libretro:https://github.com/libretro/FBNeo
+  License: FBNeo License (non-commercial). Full text:
+           https://github.com/finalburnneo/FBNeo/blob/master/src/license.txt
+
+Copyright (C) 2000-2024 FBNeo team and contributors.
+Redistribution and use in source and binary forms, for non-commercial
+purposes, are permitted provided that the above copyright notice and this
+list of conditions are retained in the distribution.
+
+该核心以未修改的二进制形式（fbneo_libretro_android.so）随程序提供，
+本程序不包含任何游戏 ROM。ROM 需由用户自行提供并自负责任。
+本程序免费分发，不用于商业用途。

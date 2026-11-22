@@ -42,6 +42,8 @@ else
 fi
 
 echo "[3/6] 资源 + 清单"
+mkdir -p build/apk/assets
+cp licenses/FBNeo.txt build/apk/assets/FBNeo.txt
 aapt2 link -o build/base.apk -I "$JAR" --manifest "$MF"
 
 echo "[4/6] 编译 Java"

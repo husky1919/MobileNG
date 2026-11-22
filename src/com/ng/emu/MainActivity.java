@@ -70,9 +70,8 @@ public class MainActivity extends Activity {
             hudHandler.postDelayed(this, 500);
         }
     };
-    private static final String[] NEO_MODES = {"DIPSWITCH", "MVS_EUR", "MVS_USA", "MVS_JAP", "AES_EUR", "AES_JAP", "UNIBIOS"};
-    private static final String[] NEO_LABELS = {"自动（跟随 DIP 开关）", "MVS 欧洲", "MVS 美国", "MVS 日本",
-            "AES 欧洲", "AES 日本", "Universe BIOS"};
+    private static final String[] NEO_MODES = {"UNIBIOS", "DIPSWITCH"};
+    private static final String[] NEO_LABELS = {"Universe BIOS（默认）", "跟随 DIP 开关"};
 
     // ---------------- 基板识别 ----------------
     private static final java.util.HashSet<String> BOARD_CPS1 = new java.util.HashSet<>(java.util.Arrays.asList(
@@ -219,7 +218,10 @@ public class MainActivity extends Activity {
         if (coreInited) { Native.deinit(); coreInited = false; }
         int r = Native.init(coreFile.getAbsolutePath(), systemDir.getAbsolutePath(), saveDir.getAbsolutePath());
         coreInited = (r == 0);
-        if (coreInited) applyCpuSpeed();
+        if (coreInited) {
+            applyNeoMode();
+            applyCpuSpeed();
+        }
         Logger.log("Native.init -> " + r);
         return coreInited;
     }
@@ -237,6 +239,7 @@ public class MainActivity extends Activity {
     // ---------------- 菜单 ----------------
     private void handleMenu(String it) {
         if (it.startsWith("CPU 频率")) { cpuSpeed(); return; }
+        if (it.startsWith("机台设置")) { dipMenu(); return; }
         switch (it) {
             case "游戏列表": listGames(); break;
             case "联机（蓝牙 · Alpha）": netMenu(); break;
@@ -259,6 +262,7 @@ public class MainActivity extends Activity {
                 break;
             case "查看日志": showLog(); break;
             case "系统信息 / BIOS": sysInfo(); break;
+            case "开源许可": showLicense(); break;
             case "内存编辑 [DEBUG]": memTool(); break;
             case "暂停游戏":
             case "继续游戏": togglePause(); break;
@@ -371,6 +375,7 @@ public class MainActivity extends Activity {
         items.add("读档");
         items.add("加载金手指 (.txt)");
         items.add("NeoGeo 模式");
+        items.add("机台设置（DIP 开关）");
         items.add("CPU 频率（" + prefs().getInt("cpuspeed", 100) + "%）");
         items.add("画面设置");
         items.add(prefs().getBoolean("hud", false) ? "帧数显示：开" : "帧数显示：关");
@@ -379,6 +384,7 @@ public class MainActivity extends Activity {
         items.add("恢复默认布局");
         items.add("查看日志");
         items.add("系统信息 / BIOS");
+        items.add("开源许可");
         boolean dbg = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (dbg) items.add("内存编辑 [DEBUG]");
         items.add(gamePaused ? "继续游戏" : "暂停游戏");
@@ -392,7 +398,7 @@ public class MainActivity extends Activity {
 
     // ---------------- NeoGeo 模式 ----------------
     private void neoMode() {
-        String cur = prefs().getString("neomode", "UNIBIOS");
+        String cur = neoModeValue();
         int idx = 0;
         for (int i = 0; i < NEO_MODES.length; i++) if (NEO_MODES[i].equals(cur)) idx = i;
         new AlertDialog.Builder(this)
@@ -406,8 +412,109 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    // 核心只认 DIPSWITCH / UNIBIOS；旧版本存过 MVS_*/AES_* 一律回落 UNIBIOS
+    private String neoModeValue() {
+        return "DIPSWITCH".equals(prefs().getString("neomode", "UNIBIOS")) ? "DIPSWITCH" : "UNIBIOS";
+    }
+
     private void applyNeoMode() {
-        Native.setCoreVariable("fbneo-neogeo-mode", prefs().getString("neomode", "UNIBIOS"));
+        Native.setCoreVariable("fbneo-neogeo-mode", neoModeValue());
+    }
+
+    // ---------------- 机台设置（DIP 开关） ----------------
+    private void dipMenu() {
+        if (!loaded || romFile == null) { toastMain("先载入游戏"); return; }
+        final String rom = romFile.getName();
+        new AlertDialog.Builder(this)
+                .setTitle("机台设置 · " + rom)
+                .setMessage("DIP 是街机主板的物理开关，影响投币数、难度、连玩、机台区域等。\n\n"
+                        + "改动会立即重置本游戏，并按 ROM 分别保存。联机两端必须一致。")
+                .setPositiveButton("继续", (d, w) -> dipList())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void dipList() {
+        String raw = Native.getDipList();
+        if (raw == null || raw.trim().isEmpty()) { toastMain("当前游戏没有可调 DIP"); return; }
+        final List<String> keys = new ArrayList<>(), labels = new ArrayList<>();
+        for (String line : raw.split("\n")) {
+            String[] p = line.split("\t", -1);
+            if (p.length < 2) continue;
+            keys.add(p[0]);
+            String nm = p[0].substring("fbneo-dipswitch-".length());
+            int dash = nm.indexOf('-');
+            if (dash > 0) nm = nm.substring(dash + 1);
+            labels.add(nm + "：" + (p[1].isEmpty() ? "(空)" : p[1]));
+        }
+        String drv = Native.getDriver();
+        new AlertDialog.Builder(this)
+                .setTitle("机台设置" + (drv.isEmpty() ? "" : " · " + drv))
+                .setItems(labels.toArray(new String[0]), (d, w) -> {
+                    String lab = labels.get(w);
+                    dipEdit(keys.get(w), lab.substring(lab.indexOf('：') + 1), raw);
+                })
+                .setNeutralButton("恢复本 ROM 默认", (d, w) -> resetDip())
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void dipEdit(String key, String curVal, String raw) {
+        String opts = "";
+        for (String line : raw.split("\n")) {
+            String[] p = line.split("\t", -1);
+            if (p.length >= 3 && p[0].equals(key)) { opts = p[2]; break; }
+        }
+        final List<String> vals = new ArrayList<>();
+        for (String o : opts.split("\\|")) if (!o.trim().isEmpty()) vals.add(o.trim());
+        if (vals.isEmpty()) vals.add(curVal);
+        int idx = Math.max(0, vals.indexOf(curVal));
+        new AlertDialog.Builder(this)
+                .setTitle(key.substring("fbneo-dipswitch-".length()))
+                .setSingleChoiceItems(vals.toArray(new String[0]), idx, (d, w) -> {
+                    d.dismiss();
+                    String rk = dipRomKey();
+                    if (rk != null) prefs().edit().putString(rk + "|" + key, vals.get(w)).apply();
+                    Native.setCoreVariable(key, vals.get(w));
+                    toastMain("已设置：" + vals.get(w));
+                    if (loaded && romFile != null) startGame(romFile);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String dipRomKey() {
+        if (romFile == null) return null;
+        String n = romFile.getName();
+        int dot = n.lastIndexOf('.');
+        return "dip:" + (dot > 0 ? n.substring(0, dot) : n);
+    }
+
+    private void applyDipForRom() {
+        String rk = dipRomKey();
+        if (rk == null) return;
+        String raw = Native.getDipList();
+        if (raw == null || raw.trim().isEmpty()) return;
+        SharedPreferences.Editor ed = prefs().edit();
+        for (String line : raw.split("\n")) {
+            String[] p = line.split("\t", -1);
+            if (p.length < 1) continue;
+            String saved = prefs().getString(rk + "|" + p[0], null);
+            if (saved != null) Native.setCoreVariable(p[0], saved);
+            else if (p.length > 1) ed.putString(rk + "|" + p[0], p[1]);
+        }
+        ed.apply();
+    }
+
+    private void resetDip() {
+        String rk = dipRomKey();
+        if (rk == null) return;
+        SharedPreferences.Editor ed = prefs().edit();
+        for (String k : new java.util.ArrayList<>(prefs().getAll().keySet()))
+            if (k.startsWith(rk + "|")) ed.remove(k);
+        ed.apply();
+        toastMain("已恢复本 ROM 默认");
+        if (loaded && romFile != null) startGame(romFile);
     }
 
     // ---------------- CPU 频率 ----------------
@@ -465,13 +572,39 @@ public class MainActivity extends Activity {
     }
 
     // ---------------- 系统信息 / BIOS ----------------
+    private void showLicense() {
+        String txt;
+        try {
+            InputStream in = getAssets().open("FBNeo.txt");
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[4096]; int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            txt = new String(bo.toByteArray(), "UTF-8");
+        } catch (Exception e) {
+            txt = "FBNeo libretro core — 见 github.com/finalburnneo/FBNeo\n读取失败：" + e;
+        }
+        TextView tv = new TextView(this);
+        tv.setText(txt);
+        tv.setTextSize(12f);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new AlertDialog.Builder(this)
+            .setTitle("开源许可 / Licenses")
+            .setView(sv)
+            .setPositiveButton("关闭", null)
+            .show();
+    }
+
     private void sysInfo() {
         StringBuilder sb = new StringBuilder();
         sb.append("核心：").append(coreFile != null && coreFile.exists()
                 ? (coreFile.length() / 1024 / 1024) + " MB" : "未导入").append('\n');
         String drv = Native.getDriver();
         sb.append("当前驱动：").append(drv.isEmpty() ? "(未载入游戏)" : drv).append('\n');
-        sb.append("NeoGeo 模式：").append(prefs().getString("neomode", "UNIBIOS")).append('\n');
+        sb.append("NeoGeo 模式：").append(neoModeValue()).append('\n');
         sb.append("CPU 频率：").append(prefs().getInt("cpuspeed", 100)).append("%\n");
         sb.append("分辨率缩放：").append(vScale == 0 ? "适应窗口" : vScale == 1 ? "整数倍" : "拉伸").append('\n');
         sb.append("\nsystem 目录：\n").append(systemDir.getAbsolutePath()).append('\n');
@@ -638,7 +771,7 @@ public class MainActivity extends Activity {
         Native.netEnable(mode, mode == 1 ? 0 : 1);
 
         // 1) 配置签名校验：两端交换 neomode/cpuspeed/romCrc，不一致就拒绝
-        final String myMode = prefs().getString("neomode", "UNIBIOS");
+        final String myMode = neoModeValue();
         final int myCpu = prefs().getInt("cpuspeed", 100);
         final String myRom = romFile != null ? fileCrc4K(romFile) : "no_rom";
         final java.io.DataOutputStream out; final java.io.DataInputStream in;
@@ -1182,6 +1315,7 @@ public class MainActivity extends Activity {
         String cheat = prefs().getString("cheat", null);
         if (cheat != null) Native.setCheats(cheat);
         sampleRate = sr;
+        applyDipForRom();
         Native.start();
         startAudio();
         loaded = true;
