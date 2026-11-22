@@ -62,3 +62,11 @@ MIT for this project's own code.
 This project contains emulator frontend code only — **no game ROMs and no BIOS**, and is **not sold and not used commercially**.
 
 The bundled build includes the unmodified FBNeo binary from the libretro buildbot, used under its own non-commercial license with notices retained. If a rights holder objects to this packaging, open an issue and it will be removed, leaving only the source and the core-free package.
+
+---
+
+## Donate
+
+<img src="docs/donate.png" alt="WeChat reward QR" width="260">
+
+Voluntary donations only. Non-refundable, and no special privileges are given in return.
