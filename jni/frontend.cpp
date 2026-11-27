@@ -245,7 +245,7 @@ static void audioSampleCb(int16_t l, int16_t r) { int16_t b[2] = {l, r}; audioBa
 // ---------------- 输入 ----------------
 static std::atomic<uint32_t> g_btn[4];
 
-// ---------------- 联机（蓝牙，输入锁步） ----------------
+// ---------------- 联机（TCP 热点/WiFi，输入锁步） ----------------
 static std::atomic<int> g_netMode{0};          // 0=关 1=主机 2=客户端
 static std::atomic<int> g_padPort{0};          // 本机控制的玩家口
 static std::atomic<uint32_t> g_txFrame{0};
